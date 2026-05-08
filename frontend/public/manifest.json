@@ -1,6 +1,6 @@
 {
-  "name": "TradingAgents-CN",
-  "short_name": "TradingAgents",
+  "name": "AI-Traiding",
+  "short_name": "AI-Traiding",
   "description": "多智能体股票分析平台",
   "start_url": "/",
   "display": "standalone",

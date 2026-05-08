@@ -4,7 +4,7 @@
     <div class="welcome-section">
       <div class="welcome-content">
         <h1 class="welcome-title">
-          欢迎使用 TradingAgents-CN
+          欢迎使用 AI-Traiding
           <span class="version-badge">v1.0.0-preview</span>
         </h1>
         <p class="welcome-subtitle">

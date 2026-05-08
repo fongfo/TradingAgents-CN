@@ -443,21 +443,21 @@
     estree-walker "^2.0.2"
     source-map-js "^1.2.1"
 
-"@vue/compiler-dom@^3.3.0", "@vue/compiler-dom@3.5.18":
-  version "3.5.18"
-  resolved "https://registry.npmmirror.com/@vue/compiler-dom/-/compiler-dom-3.5.18.tgz"
-  integrity sha512-RMbU6NTU70++B1JyVJbNbeFkK+A+Q7y9XKE2EM4NLGm2WFR8x9MbAtWxPPLdm0wUkuZv9trpwfSlL6tjdIa1+A==
-  dependencies:
-    "@vue/compiler-core" "3.5.18"
-    "@vue/shared" "3.5.18"
-
-"@vue/compiler-dom@3.5.22":
+"@vue/compiler-dom@^3.3.0", "@vue/compiler-dom@3.5.22":
   version "3.5.22"
   resolved "https://registry.npmjs.org/@vue/compiler-dom/-/compiler-dom-3.5.22.tgz"
   integrity sha512-W8RknzUM1BLkypvdz10OVsGxnMAuSIZs9Wdx1vzA3mL5fNMN15rhrSCLiTm6blWeACwUwizzPVqGJgOGBEN/hA==
   dependencies:
     "@vue/compiler-core" "3.5.22"
     "@vue/shared" "3.5.22"
+
+"@vue/compiler-dom@3.5.18":
+  version "3.5.18"
+  resolved "https://registry.npmmirror.com/@vue/compiler-dom/-/compiler-dom-3.5.18.tgz"
+  integrity sha512-RMbU6NTU70++B1JyVJbNbeFkK+A+Q7y9XKE2EM4NLGm2WFR8x9MbAtWxPPLdm0wUkuZv9trpwfSlL6tjdIa1+A==
+  dependencies:
+    "@vue/compiler-core" "3.5.18"
+    "@vue/shared" "3.5.18"
 
 "@vue/compiler-sfc@^3.5.22":
   version "3.5.22"
@@ -575,15 +575,15 @@
     "@vue/compiler-ssr" "3.5.18"
     "@vue/shared" "3.5.18"
 
-"@vue/shared@^3.3.0", "@vue/shared@3.5.18":
-  version "3.5.18"
-  resolved "https://registry.npmmirror.com/@vue/shared/-/shared-3.5.18.tgz"
-  integrity sha512-cZy8Dq+uuIXbxCZpuLd2GJdeSO/lIzIspC2WtkqIpje5QyFbvLaI5wZtdUjLHjGZrlVX6GilejatWwVYYRc8tA==
-
-"@vue/shared@3.5.22":
+"@vue/shared@^3.3.0", "@vue/shared@3.5.22":
   version "3.5.22"
   resolved "https://registry.npmjs.org/@vue/shared/-/shared-3.5.22.tgz"
   integrity sha512-F4yc6palwq3TT0u+FYf0Ns4Tfl9GRFURDN2gWG7L1ecIaS/4fCIuFOjMTnCyjsu/OK6vaDKLCrGAa+KvvH+h4w==
+
+"@vue/shared@3.5.18":
+  version "3.5.18"
+  resolved "https://registry.npmmirror.com/@vue/shared/-/shared-3.5.18.tgz"
+  integrity sha512-cZy8Dq+uuIXbxCZpuLd2GJdeSO/lIzIspC2WtkqIpje5QyFbvLaI5wZtdUjLHjGZrlVX6GilejatWwVYYRc8tA==
 
 "@vue/tsconfig@^0.5.1":
   version "0.5.1"

@@ -170,6 +170,76 @@ class StockDataPreparer:
         
         return "未知"
 
+    def _get_data_source_status(self) -> str:
+        """获取数据源状态信息"""
+        try:
+            status_parts = []
+            
+            # 检查MongoDB
+            try:
+                from tradingagents.dataflows.cache.mongodb_cache_adapter import get_mongodb_cache_adapter
+                adapter = get_mongodb_cache_adapter()
+                if adapter.use_app_cache and adapter.db is not None:
+                    status_parts.append("✅ MongoDB: 已连接")
+                else:
+                    status_parts.append("❌ MongoDB: 未连接（请检查数据库服务）")
+            except Exception as e:
+                error_msg = str(e)[:50] if len(str(e)) > 50 else str(e)
+                status_parts.append(f"❌ MongoDB: 不可用 ({error_msg})")
+            
+            # 检查Tushare
+            try:
+                import tushare as ts
+                import os
+                # 优先从数据库配置读取，其次从环境变量读取
+                token = None
+                try:
+                    from tradingagents.dataflows.data_source_manager import get_data_source_manager
+                    manager = get_data_source_manager()
+                    datasource_configs = manager._get_datasource_configs_from_db()
+                    token = datasource_configs.get('tushare', {}).get('api_key')
+                except Exception:
+                    pass
+                
+                if not token:
+                    token = os.getenv('TUSHARE_TOKEN')
+                
+                if token:
+                    status_parts.append("✅ Tushare: 已配置")
+                else:
+                    status_parts.append("⚠️ Tushare: API Key未配置")
+            except ImportError:
+                status_parts.append("❌ Tushare: 库未安装")
+            except Exception:
+                status_parts.append("⚠️ Tushare: 状态未知")
+            
+            # 检查AKShare
+            try:
+                import akshare as ak
+                status_parts.append("✅ AKShare: 可用")
+            except ImportError:
+                status_parts.append("❌ AKShare: 库未安装")
+            except Exception:
+                status_parts.append("⚠️ AKShare: 状态未知")
+            
+            # 检查BaoStock
+            try:
+                import baostock as bs
+                status_parts.append("✅ BaoStock: 可用")
+            except ImportError:
+                status_parts.append("❌ BaoStock: 库未安装")
+            except Exception:
+                status_parts.append("⚠️ BaoStock: 状态未知")
+            
+            if status_parts:
+                return "\n   ".join(status_parts)
+            else:
+                return "⚠️ 无法获取数据源状态"
+                
+        except Exception as e:
+            logger.debug(f"获取数据源状态失败: {e}")
+            return "⚠️ 无法获取数据源状态"
+    
     def _get_hk_network_limitation_suggestion(self) -> str:
         """获取港股网络限制的详细建议"""
         suggestions = [
@@ -337,12 +407,43 @@ class StockDataPreparer:
                     )
             else:
                 logger.warning(f"⚠️ [A股数据] 无法获取基本信息: {stock_code}")
+                
+                # 获取数据源状态信息
+                data_source_status = self._get_data_source_status()
+                
+                # 构建详细的错误信息
+                error_message = f"无法获取股票 {stock_code} 的基本信息"
+                
+                # 构建详细的建议
+                suggestion_parts = [
+                    "💡 可能的原因和解决方案：",
+                    "",
+                    "1. 股票代码不存在或已退市",
+                    f"   • 股票代码 {stock_code} 可能不存在",
+                    "   • 该股票可能已退市或暂停交易",
+                    "   • 请确认股票代码是否正确",
+                    "",
+                    "2. 数据源配置问题",
+                    f"   {data_source_status}",
+                    "",
+                    "3. 网络连接问题",
+                    "   • 请检查网络连接是否正常",
+                    "   • 尝试刷新页面后重试",
+                    "",
+                    "📋 建议操作：",
+                    "   • 尝试使用其他已知存在的股票代码（如：000001、600519）进行测试",
+                    "   • 检查系统设置中的数据源配置",
+                    "   • 确认MongoDB数据库是否正常运行"
+                ]
+                
+                suggestion = "\n".join(suggestion_parts)
+                
                 return StockDataPreparationResult(
                     is_valid=False,
                     stock_code=stock_code,
                     market_type="A股",
-                    error_message=f"无法获取股票 {stock_code} 的基本信息",
-                    suggestion="请检查股票代码是否正确，或确认该股票是否已上市"
+                    error_message=error_message,
+                    suggestion=suggestion
                 )
 
             # 2. 获取历史数据
@@ -382,14 +483,50 @@ class StockDataPreparer:
                     )
             else:
                 logger.warning(f"⚠️ [A股数据] 无法获取历史数据: {stock_code}")
+                
+                # 获取数据源状态信息
+                data_source_status = self._get_data_source_status()
+                
+                # 构建详细的错误信息
+                error_message = f"无法获取股票 {stock_code} 的历史数据"
+                if stock_name and stock_name != "未知":
+                    error_message += f"\n\n股票名称: {stock_name}"
+                
+                # 构建详细的建议
+                suggestion_parts = [
+                    "💡 可能的原因和解决方案：",
+                    "",
+                    "1. 数据源配置问题",
+                    f"   {data_source_status}",
+                    "",
+                    "2. 网络连接问题",
+                    "   • 请检查网络连接是否正常",
+                    "   • 尝试刷新页面后重试",
+                    "",
+                    "3. 股票代码问题",
+                    "   • 确认股票代码是否正确（300612 为创业板股票）",
+                    "   • 确认该股票是否已上市或已退市",
+                    "",
+                    "4. 数据源暂时不可用",
+                    "   • 等待5-10分钟后重试",
+                    "   • 可以尝试其他股票代码进行测试",
+                    "",
+                    "📋 建议操作：",
+                    "   • 检查系统设置中的数据源配置",
+                    "   • 确认MongoDB数据库是否正常运行",
+                    "   • 确认Tushare/AKShare数据源是否已正确配置"
+                ]
+                
+                suggestion = "\n".join(suggestion_parts)
+                
                 return StockDataPreparationResult(
                     is_valid=False,
                     stock_code=stock_code,
                     market_type="A股",
                     stock_name=stock_name,
                     has_basic_info=has_basic_info,
-                    error_message=f"无法获取股票 {stock_code} 的历史数据",
-                    suggestion="请检查网络连接或数据源配置，或稍后重试"
+                    error_message=error_message,
+                    suggestion=suggestion
                 )
 
             # 3. 数据准备成功
@@ -406,7 +543,39 @@ class StockDataPreparer:
             )
 
         except Exception as e:
-            logger.error(f"❌ [A股数据] 数据准备失败: {e}")
+            logger.error(f"❌ [A股数据] 数据准备失败: {e}", exc_info=True)
+            
+            # 获取数据源状态信息
+            data_source_status = self._get_data_source_status()
+            
+            # 构建详细的错误信息
+            error_message = f"数据准备失败: {str(e)}"
+            if stock_name and stock_name != "未知":
+                error_message += f"\n\n股票名称: {stock_name}"
+            
+            # 构建详细的建议
+            suggestion_parts = [
+                "💡 可能的原因和解决方案：",
+                "",
+                "1. 系统异常",
+                f"   • 错误详情: {str(e)[:100]}",
+                "   • 这可能是系统内部错误，请查看日志获取更多信息",
+                "",
+                "2. 数据源配置问题",
+                f"   {data_source_status}",
+                "",
+                "3. 网络连接问题",
+                "   • 请检查网络连接是否正常",
+                "   • 尝试刷新页面后重试",
+                "",
+                "📋 建议操作：",
+                "   • 等待片刻后重试",
+                "   • 检查系统日志获取详细错误信息",
+                "   • 如果问题持续，请联系技术支持"
+            ]
+            
+            suggestion = "\n".join(suggestion_parts)
+            
             return StockDataPreparationResult(
                 is_valid=False,
                 stock_code=stock_code,
@@ -414,8 +583,8 @@ class StockDataPreparer:
                 stock_name=stock_name,
                 has_basic_info=has_basic_info,
                 has_historical_data=has_historical_data,
-                error_message=f"数据准备失败: {str(e)}",
-                suggestion="请检查网络连接或数据源配置"
+                error_message=error_message,
+                suggestion=suggestion
             )
 
     def _prepare_hk_stock_data(self, stock_code: str, period_days: int,

@@ -331,7 +331,9 @@ class StockDataService:
             }
         
         # 字段映射和标准化
-        result["board"] = doc.get("sse")  # 板块标准化
+        # 🔥 修复：board 应该从 market 字段获取（market 存储的是板块信息），而不是从 sse 获取
+        # sse 存储的是交易所名称，不应该映射到 board
+        result["board"] = doc.get("market") or doc.get("board") or ""  # 板块（主板、创业板、科创板等）
         result["sector"] = doc.get("sec")  # 所属板块标准化
         result["status"] = "L"  # 默认上市状态
         result["data_version"] = 1

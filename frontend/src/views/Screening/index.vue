@@ -520,9 +520,38 @@ const performScreening = async () => {
       macd_hist: it.macd_hist,
     }))
 
-    ElMessage.success(`筛选完成，找到 ${screeningResults.value.length} 只股票`)
-  } catch (error) {
-    ElMessage.error('筛选失败，请重试')
+    const resultCount = screeningResults.value.length
+    if (resultCount === 0) {
+      // 检查是否选择了行业筛选
+      if (filters.industry && filters.industry.length > 0) {
+        ElMessage.warning({
+          message: '未找到符合条件的股票。提示：如果使用了行业筛选，可能是当前数据源没有行业信息。建议：1) 移除行业筛选条件 2) 或使用Tushare数据源重新同步数据',
+          duration: 8000,
+          showClose: true
+        })
+      } else {
+        ElMessage.warning({
+          message: '未找到符合条件的股票，请尝试放宽筛选条件',
+          duration: 5000
+        })
+      }
+    } else if (resultCount < 10) {
+      ElMessage.warning({
+        message: `筛选完成，仅找到 ${resultCount} 只股票。如果结果较少，建议：1) 放宽筛选条件 2) 检查数据源是否有足够的数据`,
+        duration: 6000,
+        showClose: true
+      })
+    } else {
+      ElMessage.success(`筛选完成，找到 ${resultCount} 只股票`)
+    }
+  } catch (error: any) {
+    console.error('筛选失败:', error)
+    const errorMsg = error?.response?.data?.detail || error?.message || '未知错误'
+    ElMessage.error({
+      message: `筛选失败: ${errorMsg}`,
+      duration: 5000,
+      showClose: true
+    })
   } finally {
     screeningLoading.value = false
   }
@@ -700,18 +729,49 @@ const loadIndustries = async () => {
   try {
     const response = await screeningApi.getIndustries()
     const data = response.data || response
-    industryOptions.value = data.industries || []
-    console.log('行业列表加载成功:', industryOptions.value.length, '个行业')
-  } catch (error) {
+    const industries = data.industries || []
+    industryOptions.value = industries
+    
+    if (industries.length === 0) {
+      console.warn('行业列表为空，可能原因：1) 数据库中没有股票基础数据 2) 股票数据中没有行业字段 3) 数据源配置错误')
+      ElMessage.warning({
+        message: '未找到行业分类数据。提示：1) AKShare数据源不提供行业信息，建议使用Tushare数据源同步 2) 请前往"设置-系统管理-多数据源同步"使用Tushare同步数据',
+        duration: 8000,
+        showClose: true
+      })
+      // 如果加载失败，使用默认的行业列表作为备选
+      industryOptions.value = [
+        { label: '银行', value: '银行', count: 0 },
+        { label: '证券', value: '证券', count: 0 },
+        { label: '保险', value: '保险', count: 0 },
+        { label: '房地产', value: '房地产', count: 0 },
+        { label: '医药生物', value: '医药生物', count: 0 }
+      ]
+    } else {
+      console.log('行业列表加载成功:', industryOptions.value.length, '个行业，数据源:', data.source || '未知')
+      // 如果有警告信息，显示给用户
+      if (data.warning) {
+        ElMessage.warning({
+          message: data.warning,
+          duration: 6000,
+          showClose: true
+        })
+      }
+    }
+  } catch (error: any) {
     console.error('加载行业列表失败:', error)
-    ElMessage.error('加载行业列表失败')
-    // 如果加载失败，使用默认的行业列表
+    const errorMsg = error?.response?.data?.detail || error?.message || '未知错误'
+    ElMessage.error({
+      message: `加载行业列表失败: ${errorMsg}`,
+      duration: 5000
+    })
+    // 如果加载失败，使用默认的行业列表作为备选
     industryOptions.value = [
-      { label: '银行', value: '银行' },
-      { label: '证券', value: '证券' },
-      { label: '保险', value: '保险' },
-      { label: '房地产', value: '房地产' },
-      { label: '医药生物', value: '医药生物' }
+      { label: '银行', value: '银行', count: 0 },
+      { label: '证券', value: '证券', count: 0 },
+      { label: '保险', value: '保险', count: 0 },
+      { label: '房地产', value: '房地产', count: 0 },
+      { label: '医药生物', value: '医药生物', count: 0 }
     ]
   }
 }

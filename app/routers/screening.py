@@ -310,7 +310,11 @@ async def get_industries(user: dict = Depends(get_current_user)):
             {
                 "$match": {
                     "source": preferred_source,  # 🔥 只查询优先级最高的数据源
-                    "industry": {"$ne": None, "$ne": ""}  # 过滤空行业
+                    "$and": [
+                        {"industry": {"$ne": None}},
+                        {"industry": {"$ne": ""}},
+                        {"industry": {"$exists": True}}
+                    ]  # 正确过滤空行业：同时过滤 None、空字符串和不存在的情况
                 }
             },
             {
@@ -336,16 +340,20 @@ async def get_industries(user: dict = Depends(get_current_user)):
             safe_industry = ""
             try:
                 if raw_industry is None:
-                    safe_industry = ""
+                    continue  # 跳过 None 值
                 elif isinstance(raw_industry, float):
                     if raw_industry != raw_industry or raw_industry in (float("inf"), float("-inf")):
-                        safe_industry = ""
+                        continue  # 跳过 NaN 和 Inf
                     else:
-                        safe_industry = str(raw_industry)
+                        safe_industry = str(raw_industry).strip()
                 else:
-                    safe_industry = str(raw_industry)
+                    safe_industry = str(raw_industry).strip()
+                
+                # 过滤空字符串
+                if not safe_industry:
+                    continue
             except Exception:
-                safe_industry = ""
+                continue  # 跳过处理失败的记录
 
             raw_count = doc.get("count", 0)
             safe_count = 0
@@ -360,13 +368,102 @@ async def get_industries(user: dict = Depends(get_current_user)):
             except Exception:
                 safe_count = 0
 
-            industries.append({
-                "value": safe_industry,
-                "label": safe_industry,
-                "count": safe_count,
-            })
+            # 只添加有效的行业
+            if safe_industry and safe_count > 0:
+                industries.append({
+                    "value": safe_industry,
+                    "label": safe_industry,
+                    "count": safe_count,
+                })
 
         logger.info(f"[get_industries] 从数据源 {preferred_source} 返回 {len(industries)} 个行业")
+        
+        # 如果没有找到行业数据，记录警告并返回空列表
+        if len(industries) == 0:
+            logger.warning(f"[get_industries] 数据源 {preferred_source} 中没有找到行业数据，可能原因：1) 数据库中没有股票基础数据 2) 股票数据中没有 industry 字段 3) 数据源配置错误")
+            # 检查数据库中是否有该数据源的记录
+            total_count = await collection.count_documents({"source": preferred_source})
+            logger.info(f"[get_industries] 数据源 {preferred_source} 共有 {total_count} 条股票记录")
+            if total_count > 0:
+                # 检查有多少条记录有 industry 字段
+                with_industry = await collection.count_documents({
+                    "source": preferred_source,
+                    "$and": [
+                        {"industry": {"$exists": True}},
+                        {"industry": {"$ne": None}},
+                        {"industry": {"$ne": ""}}
+                    ]
+                })
+                logger.info(f"[get_industries] 其中 {with_industry} 条记录有有效的行业字段")
+                
+                # 🔥 如果当前数据源没有行业信息，尝试从其他数据源获取
+                if with_industry == 0 and total_count > 0:
+                    logger.info(f"[get_industries] 尝试从其他数据源获取行业信息...")
+                    # 获取所有启用的数据源
+                    all_sources = [ds.type.lower() for ds in data_source_configs
+                                  if ds.enabled and ds.type.lower() in ['tushare', 'akshare', 'baostock']]
+                    
+                    # 尝试从其他数据源获取行业信息
+                    for alt_source in all_sources:
+                        if alt_source == preferred_source:
+                            continue
+                        alt_industry_count = await collection.count_documents({
+                            "source": alt_source,
+                            "$and": [
+                                {"industry": {"$exists": True}},
+                                {"industry": {"$ne": None}},
+                                {"industry": {"$ne": ""}}
+                            ]
+                        })
+                        if alt_industry_count > 0:
+                            logger.info(f"[get_industries] 数据源 {alt_source} 有 {alt_industry_count} 条带行业信息的记录，建议使用该数据源")
+                            # 从该数据源获取行业列表
+                            alt_pipeline = [
+                                {
+                                    "$match": {
+                                        "source": alt_source,
+                                        "$and": [
+                                            {"industry": {"$ne": None}},
+                                            {"industry": {"$ne": ""}},
+                                            {"industry": {"$exists": True}}
+                                        ]
+                                    }
+                                },
+                                {
+                                    "$group": {
+                                        "_id": "$industry",
+                                        "count": {"$sum": 1}
+                                    }
+                                },
+                                {"$sort": {"count": -1}},
+                                {
+                                    "$project": {
+                                        "industry": "$_id",
+                                        "count": 1,
+                                        "_id": 0
+                                    }
+                                }
+                            ]
+                            
+                            alt_industries = []
+                            async for alt_doc in collection.aggregate(alt_pipeline):
+                                raw_industry = alt_doc.get("industry")
+                                if raw_industry and str(raw_industry).strip():
+                                    alt_industries.append({
+                                        "value": str(raw_industry).strip(),
+                                        "label": str(raw_industry).strip(),
+                                        "count": int(alt_doc.get("count", 0)),
+                                    })
+                            
+                            if alt_industries:
+                                logger.info(f"[get_industries] 从数据源 {alt_source} 获取到 {len(alt_industries)} 个行业")
+                                return {
+                                    "industries": alt_industries,
+                                    "total": len(alt_industries),
+                                    "source": alt_source,
+                                    "warning": f"当前数据源 {preferred_source} 没有行业信息，已从 {alt_source} 数据源获取"
+                                }
+                            break
 
         return {
             "industries": industries,
@@ -376,4 +473,4 @@ async def get_industries(user: dict = Depends(get_current_user)):
 
     except Exception as e:
         logger.error(f"[get_industries] 获取行业列表失败: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=f"获取行业列表失败: {str(e)}")

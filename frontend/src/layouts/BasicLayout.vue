@@ -8,9 +8,9 @@
     >
       <div class="sidebar-header">
         <div class="logo">
-          <img src="/logo.svg" alt="TradingAgents-CN" />
+          <img src="/logo.svg" alt="AI-Traiding" />
           <span v-show="!appStore.sidebarCollapsed" class="logo-text">
-            TradingAgents-CN
+            AI-Traiding
           </span>
         </div>
       </div>

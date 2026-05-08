@@ -86,10 +86,13 @@
       </el-sub-menu>
     </el-sub-menu>
 
+    <!-- 关于菜单已隐藏 -->
+    <!--
     <el-menu-item index="/about">
       <el-icon><InfoFilled /></el-icon>
       <template #title>关于</template>
     </el-menu-item>
+    -->
   </el-menu>
 </template>
 

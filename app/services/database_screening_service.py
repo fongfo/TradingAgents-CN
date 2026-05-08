@@ -143,12 +143,38 @@ class DatabaseScreeningService:
             query["source"] = source
 
             logger.info(f"📋 数据库查询条件: {query}")
+            
+            # 🔥 诊断：检查数据源中的股票总数
+            total_stocks_in_source = await collection.count_documents({"source": source})
+            logger.info(f"📊 数据源 {source} 共有 {total_stocks_in_source} 只股票")
+            
+            # 🔥 诊断：检查筛选条件是否包含行业筛选
+            has_industry_filter = any(
+                (isinstance(c, dict) and c.get("field") == "industry") or 
+                (hasattr(c, "field") and c.field == "industry")
+                for c in conditions
+            )
+            if has_industry_filter:
+                # 检查该数据源有多少股票有行业信息
+                stocks_with_industry = await collection.count_documents({
+                    "source": source,
+                    "$and": [
+                        {"industry": {"$exists": True}},
+                        {"industry": {"$ne": None}},
+                        {"industry": {"$ne": ""}}
+                    ]
+                })
+                logger.info(f"📊 数据源 {source} 中有 {stocks_with_industry} 只股票有行业信息")
+                if stocks_with_industry == 0:
+                    logger.warning(f"⚠️ 数据源 {source} 没有行业信息！如果筛选条件包含行业，将无法筛选出任何股票。建议：1) 使用 Tushare 数据源同步 2) 或移除行业筛选条件")
 
             # 构建排序条件
             sort_conditions = self._build_sort_conditions(order_by)
 
             # 获取总数
             total_count = await collection.count_documents(query)
+            
+            logger.info(f"📊 筛选结果: 符合条件的有 {total_count} 只股票（数据源: {source}）")
 
             # 执行查询
             cursor = collection.find(query)
@@ -296,9 +322,21 @@ class DatabaseScreeningService:
                 code = result.get("code")
                 if code in financial_data_map:
                     financial_data = financial_data_map[code]
-                    # 只更新 ROE（如果 stock_basic_info 中没有的话）
-                    if result.get("roe") is None:
-                        result["roe"] = financial_data.get("roe")
+                    # 🔥 只更新 ROE（如果 stock_basic_info 中没有的话）
+                    # 确保 ROE 是数值类型，不是字符串或其他类型
+                    roe_value = financial_data.get("roe")
+                    if roe_value is not None:
+                        try:
+                            # 确保是数值类型
+                            roe_float = float(roe_value)
+                            # 验证 ROE 的合理范围（通常在 -100% 到 100% 之间）
+                            if -200 <= roe_float <= 200:
+                                if result.get("roe") is None:
+                                    result["roe"] = roe_float
+                            else:
+                                logger.warning(f"⚠️ 股票 {code} 的 ROE 值异常: {roe_float}，跳过填充")
+                        except (ValueError, TypeError):
+                            logger.warning(f"⚠️ 股票 {code} 的 ROE 值格式错误: {roe_value}，跳过填充")
                     # 可以添加更多财务指标
                     # result["roa"] = financial_data.get("roa")
                     # result["netprofit_margin"] = financial_data.get("netprofit_margin")
@@ -322,6 +360,24 @@ class DatabaseScreeningService:
             elif code.startswith("8") or code.startswith("4"):
                 market_type = "A股"  # 北交所
 
+        # 🔥 正确提取板块和交易所信息
+        # 板块：优先使用数据库中的 board 字段，如果没有则使用 market 字段（market 存储的是板块信息）
+        board_value = doc.get("board") or doc.get("market") or ""
+        # 如果 board 字段是交易所名称（错误映射），则使用 market 字段
+        if board_value in ["上海证券交易所", "深圳证券交易所", "北京证券交易所", "SSE", "SZSE", "BSE"]:
+            board_value = doc.get("market") or ""
+        
+        # 交易所：优先使用 sse 字段，如果没有则根据股票代码推断
+        exchange_value = doc.get("sse") or ""
+        if not exchange_value:
+            # 根据股票代码推断交易所
+            if code.startswith(("60", "68", "90")):
+                exchange_value = "上海证券交易所"
+            elif code.startswith(("00", "30", "20")):
+                exchange_value = "深圳证券交易所"
+            elif code.startswith(("8", "4")):
+                exchange_value = "北京证券交易所"
+
         result = {
             # 基础信息
             "code": doc.get("code"),
@@ -329,20 +385,20 @@ class DatabaseScreeningService:
             "industry": doc.get("industry"),
             "area": doc.get("area"),
             "market": market_type,  # 市场类型（A股、美股、港股）
-            "board": doc.get("market"),  # 板块（主板、创业板、科创板等）
-            "exchange": doc.get("sse"),  # 交易所（上海证券交易所、深圳证券交易所等）
+            "board": board_value,  # 板块（主板、创业板、科创板等）
+            "exchange": exchange_value,  # 交易所（上海证券交易所、深圳证券交易所等）
             "list_date": doc.get("list_date"),
 
             # 市值信息（亿元）
             "total_mv": doc.get("total_mv"),
             "circ_mv": doc.get("circ_mv"),
 
-            # 财务指标
-            "pe": doc.get("pe"),
-            "pb": doc.get("pb"),
-            "pe_ttm": doc.get("pe_ttm"),
-            "pb_mrq": doc.get("pb_mrq"),
-            "roe": doc.get("roe"),
+            # 财务指标（确保字段类型正确）
+            "pe": self._safe_float(doc.get("pe")),
+            "pb": self._safe_float(doc.get("pb")),
+            "pe_ttm": self._safe_float(doc.get("pe_ttm")),
+            "pb_mrq": self._safe_float(doc.get("pb_mrq")),
+            "roe": self._safe_float(doc.get("roe")),  # 🔥 确保 ROE 是数值类型，不是字符串
 
             # 交易指标
             "turnover_rate": doc.get("turnover_rate"),
@@ -368,8 +424,60 @@ class DatabaseScreeningService:
             "updated_at": doc.get("updated_at"),
         }
         
-        # 移除None值
+        # 🔥 添加字段验证和日志（用于调试字段错位问题）
+        if code:
+            # 验证关键字段类型
+            if result.get("roe") is not None and not isinstance(result.get("roe"), (int, float)):
+                logger.warning(f"⚠️ 股票 {code} 的 ROE 字段类型错误: {type(result.get('roe'))}, 值: {result.get('roe')}")
+                # 尝试修复：如果是字符串且看起来像板块名称，则清空
+                roe_val = result.get("roe")
+                if isinstance(roe_val, str) and roe_val in ["主板", "创业板", "科创板", "中小板", "北交所"]:
+                    logger.warning(f"⚠️ 股票 {code} 的 ROE 字段被错误地填充了板块信息: {roe_val}，已清空")
+                    result["roe"] = None
+            
+            if result.get("board") is not None and isinstance(result.get("board"), (int, float)):
+                logger.warning(f"⚠️ 股票 {code} 的 board 字段类型错误: {type(result.get('board'))}, 值: {result.get('board')}")
+            
+            if result.get("exchange") is not None and isinstance(result.get("exchange"), (int, float)):
+                logger.warning(f"⚠️ 股票 {code} 的 exchange 字段类型错误: {type(result.get('exchange'))}, 值: {result.get('exchange')}")
+        
+        # 移除None值（但保留空字符串，因为某些字段可能为空字符串）
         return {k: v for k, v in result.items() if v is not None}
+    
+    def _safe_float(self, value: Any) -> Optional[float]:
+        """
+        安全地将值转换为浮点数
+        
+        Args:
+            value: 要转换的值
+            
+        Returns:
+            float 或 None
+        """
+        if value is None:
+            return None
+        
+        # 如果是字符串，检查是否是板块或交易所名称
+        if isinstance(value, str):
+            # 如果是板块或交易所名称，返回 None
+            if value in ["主板", "创业板", "科创板", "中小板", "北交所", 
+                        "上海证券交易所", "深圳证券交易所", "北京证券交易所",
+                        "SSE", "SZSE", "BSE"]:
+                return None
+            # 尝试转换为浮点数
+            try:
+                return float(value)
+            except (ValueError, TypeError):
+                return None
+        
+        # 如果是数值类型
+        if isinstance(value, (int, float)):
+            # 检查是否是 NaN 或 Inf
+            if isinstance(value, float) and (value != value or value in (float("inf"), float("-inf"))):
+                return None
+            return float(value)
+        
+        return None
     
     async def get_field_statistics(self, field: str) -> Dict[str, Any]:
         """
